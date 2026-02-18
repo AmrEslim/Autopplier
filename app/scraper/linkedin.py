@@ -41,19 +41,35 @@ class LinkedInScraper(BaseScraper):
         """
         Searches for jobs with pagination support.
         Args:
-            limit: Maximum number of jobs to fetch.
+            limit:             Maximum number of jobs to fetch.
+            timeframe:         LinkedIn f_TPR value, e.g. 'r7200'.
+            job_type:          LinkedIn f_JT value, e.g. 'F' for Full-time.
+            remote:            LinkedIn f_WT value, e.g. '2' for Remote.
+            experience_levels: List of LinkedIn f_E codes, e.g. ['2', '3'].
         """
         if not self.page:
             raise RuntimeError("Browser not started.")
 
+        timeframe         = kwargs.get("timeframe", "r86400")
+        job_type          = kwargs.get("job_type", "")
+        remote            = kwargs.get("remote", "")
+        experience_levels = kwargs.get("experience_levels", [])
+
         self.logger.info(f"Searching for '{query}' in '{location}' (Limit: {limit})...")
-        
+
         all_jobs = []
         offset = 0
-        
+
         while len(all_jobs) < limit:
-            # Construct URL with pagination
-            search_url = f"https://www.linkedin.com/jobs/search/?keywords={query}&location={location}&f_TPR=r86400&start={offset}"
+            # Build URL with all active filters
+            params = f"keywords={query}&location={location}&f_TPR={timeframe}&start={offset}"
+            if job_type:
+                params += f"&f_JT={job_type}"
+            if remote:
+                params += f"&f_WT={remote}"
+            if experience_levels:
+                params += "&f_E=" + "%2C".join(experience_levels)
+            search_url = f"https://www.linkedin.com/jobs/search/?{params}"
             self.logger.info(f"Fetching jobs from offset {offset}...")
             
             try:
