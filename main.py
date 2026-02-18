@@ -58,7 +58,7 @@ def main():
         print("Starting browser...")
         navigator.start()
         
-        url = "https://www.w3schools.com/html/html_forms.asp" # Simple test page
+        url = "https://careers.swissre.com/job/Madrid-Back-End-Engineer-M/1288474501/" # Simple test page
         print(f"Navigating to {url}...")
         navigator.go_to(url)
         
@@ -71,8 +71,63 @@ def main():
         analyzer.page = navigator.current_page
         
         form_data = analyzer.analyze_form()
+        
+        # Logic to handle Job Description pages (no fields, but "Apply" button)
+        if not form_data.fields:
+            print("No form fields found. Checking for 'Apply' button...")
+            apply_selector = analyzer.find_apply_button()
+            
+            if apply_selector:
+                print(f"Found potential Apply button: {apply_selector}")
+                print("Clicking Apply button...")
+                # Use navigator to click (we might need to expose a click method or just use page directly)
+                # Ideally Navigator should handle interactions, but for now accessing page directly is easier
+                # or add click_and_wait to Navigator.
+                try:
+                    
+                    # We need to handle new tabs/windows potentially
+                    with navigator.context.expect_page() as new_page_info:
+                        # Try to click. If it opens a new tab, new_page_info.value will be the new page.
+                        # However, expect_page() expects a new page event. If it DOESNT open a new page, it will timeout.
+                        # So this is tricky.
+                        # Simplified approach: Click and wait for navigation.
+                        
+                        # Check if target=_blank is present?
+                        # Let's just try clicking and waiting for load.
+                        navigator.page.click(apply_selector)
+                        
+                        # Wait for some navigation or load
+                        # SwissRe seems slow.
+                        self.page.wait_for_load_state("domcontentloaded", timeout=60000)
+                        
+                    # If a new page was created, we need to switch to it.
+                    # But for now, let's assume it navigates in the same tab or we handle the simple case.
+                    
+                except Exception as e:
+                     # If expect_page timed out, it might mean it just navigated in the same tab, which is fine.
+                     print(f"Navigation after click warning: {e}")
+                     # Ensure we are still waiting for load
+                     try:
+                        navigator.page.wait_for_load_state("domcontentloaded", timeout=30000)
+                     except:
+                        pass
+
+                print("Re-analyzing form after navigation...")
+                form_data = analyzer.analyze_form()
+            else:
+                print("No Apply button found.")
+
         print(f"Found {len(form_data.fields)} fields.")
         
+        from config.settings import settings
+        if settings.TEST_MODE:
+            output_file = "form_data_debug.json"
+            print(f"Test Mode: Dumping form data to {output_file}...")
+            with open(output_file, "w") as f:
+                f.write(form_data.model_dump_json(indent=2))
+            print("Done. Exiting.")
+            return
+
         # 5. Generate and Fill (Simulation)
         for field in form_data.fields:
             print(f"Processing field: {field.name} ({field.field_type})")

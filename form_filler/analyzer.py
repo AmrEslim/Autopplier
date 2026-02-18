@@ -101,3 +101,32 @@ class Analyzer:
                  submit_selector = 'button[type="submit"]' # Generic fallback
 
         return ApplicationForm(url=self.page.url, fields=fields, submit_selector=submit_selector)
+
+    def find_apply_button(self) -> str:
+        """
+        Attempts to find a generic 'Apply' button on the page.
+        Returns the selector if found, otherwise None.
+        """
+        # Common text for apply buttons
+        keywords = ["Apply", "Apply Now", "Start Application", "Solicitar", "Postuler"]
+        
+        # 1. Try generic buttons with text
+        # 'text=' pseudo-selector in Playwright is very powerful
+        for keyword in keywords:
+            # Case insensitive search
+            selector = f'text=/{keyword}/i'
+            try:
+                if self.page.query_selector(selector):
+                    return selector
+            except:
+                pass
+                
+        # 2. Try partial text on buttons or links
+        # Looking for explicit role=button or <a> tags or input[type=submit/button]
+        # This is improving robustness
+        for keyword in keywords:
+             selector = f"a:has-text('{keyword}'), button:has-text('{keyword}')"
+             if self.page.query_selector(selector):
+                 return selector
+                 
+        return None
