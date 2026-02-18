@@ -324,12 +324,6 @@ class SettingsComponent(ft.Container):
         set_key(ENV_PATH, "OPENAI_API_KEY",     self.openai_key_input.value.strip())
         set_key(ENV_PATH, "HEADLESS_MODE",      str(self.headless_switch.value))
 
-        e.page.show_snack_bar(
-            ft.SnackBar(
-                content=ft.Row([
-                    ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, color=ft.Colors.GREEN_400),
-                    ft.Text("Settings saved successfully!", color=ft.Colors.WHITE),
-                ]),
-                bgcolor=ft.Colors.SURFACE_VARIANT,
-            )
+        e.page.show_dialog(
+            ft.SnackBar(content="✅ Settings saved successfully!")
         )
