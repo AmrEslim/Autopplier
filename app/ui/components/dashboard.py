@@ -1,7 +1,14 @@
 import asyncio
+import json
 from datetime import datetime
 import flet as ft
 from app.ui.components.logs import LogComponent
+
+# Must match the keys in settings.py / main.py
+JOB_BOARD_OPTIONS = {
+    "LinkedIn":              "linkedin",
+    "EU-Startups (Jobs)":    "eu_startups",
+}
 
 
 class DashboardComponent(ft.Container):
@@ -12,6 +19,16 @@ class DashboardComponent(ft.Container):
         self.is_running = False
         self.padding = 20
         self._stop_event: asyncio.Event = None
+
+        # ── Job board checkboxes (multi-select) ────────────────────────────
+        self.board_checkboxes: dict[str, ft.Checkbox] = {}
+        for label, _code in JOB_BOARD_OPTIONS.items():
+            self.board_checkboxes[label] = ft.Checkbox(
+                label=label,
+                value=(label == "LinkedIn"),   # LinkedIn checked by default
+                active_color=ft.Colors.BLUE_400,
+            )
+        self._load_board_selection()  # override from saved JSON if present
 
         # ── Status row ────────────────────────────────────────────────────
         self.status_text = ft.Text("Status: Idle", color=ft.Colors.GREY, size=14)
@@ -43,6 +60,12 @@ class DashboardComponent(ft.Container):
         self.progress_label = ft.Text("", size=11, color=ft.Colors.GREY_400, visible=False)
 
         # ── Layout ────────────────────────────────────────────────────────
+        board_row = ft.Row(
+            [cb for cb in self.board_checkboxes.values()],
+            spacing=16,
+            wrap=True,
+        )
+
         self.content = ft.Column([
             # Header
             ft.Row([
@@ -50,6 +73,20 @@ class DashboardComponent(ft.Container):
                 ft.Container(expand=True),
                 self.last_run_text,
             ]),
+
+            # Job board selection
+            ft.Row([
+                ft.Icon(ft.Icons.LANGUAGE, color=ft.Colors.BLUE_400, size=18),
+                ft.Text("Scrape from:", size=14, weight=ft.FontWeight.BOLD,
+                        color=ft.Colors.BLUE_400),
+            ], spacing=8),
+            ft.Container(
+                content=board_row,
+                border=ft.border.all(1, ft.Colors.OUTLINE),
+                border_radius=8,
+                padding=ft.padding.symmetric(horizontal=12, vertical=8),
+            ),
+
             ft.Row(
                 [self.status_text, self.start_btn],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -164,10 +201,48 @@ class DashboardComponent(ft.Container):
             except Exception:
                 pass
 
+    # ── Board selection helpers ─────────────────────────────────────────────
+
+    def _get_selected_boards(self) -> list[str]:
+        """Return list of selected board codes, e.g. ['linkedin', 'eu_startups']."""
+        return [
+            JOB_BOARD_OPTIONS[label]
+            for label, cb in self.board_checkboxes.items()
+            if cb.value
+        ]
+
+    def _load_board_selection(self):
+        """Pre-check boxes based on what's saved in search_params.json."""
+        try:
+            with open("data/inputs/search_params.json", "r") as f:
+                data = json.load(f)
+            saved = data.get("job_boards", ["linkedin"])
+            inv = {v: k for k, v in JOB_BOARD_OPTIONS.items()}
+            for label, cb in self.board_checkboxes.items():
+                code = JOB_BOARD_OPTIONS[label]
+                cb.value = code in saved
+        except Exception:
+            pass
+
+    def _save_board_selection(self, boards: list[str]):
+        """Persist the selected boards into search_params.json."""
+        try:
+            with open("data/inputs/search_params.json", "r") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+        data["job_boards"] = boards
+        with open("data/inputs/search_params.json", "w") as f:
+            json.dump(data, f, indent=4)
+
     # ── Event handlers ────────────────────────────────────────────────────
 
     def toggle_scraping(self, e):
         if not self.is_running:
+            selected = self._get_selected_boards()
+            if not selected:
+                self.log_component.add_log("⚠️  Please select at least one job board.")
+                return
             self.page.run_task(self._run_scraping_task)
         else:
             self._request_stop()
@@ -176,16 +251,21 @@ class DashboardComponent(ft.Container):
         """Runs entirely on the Flet event loop — no thread-safety issues."""
         from app.main import run_scraper
 
+        selected_boards = self._get_selected_boards()
+        self._save_board_selection(selected_boards)
+
         self.is_running = True
         self._stop_event = asyncio.Event()
         self._reset_stats()
-        self.log_component.add_log("Starting scraper...")
+        boards_str = ", ".join(selected_boards)
+        self.log_component.add_log(f"Starting scraper for: {boards_str}")
         self._set_running()
 
         await run_scraper(
             log_callback=self.log_component.add_log,
             stop_event=self._stop_event,
             progress_callback=self._on_progress,
+            job_boards=selected_boards,
         )
 
         self.last_run_text.value = f"Last run: {datetime.now().strftime('%d %b %Y, %H:%M')}"

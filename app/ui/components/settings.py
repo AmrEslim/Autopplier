@@ -41,6 +41,7 @@ REMOTE_OPTIONS = {
 }
 
 
+
 def _section_header(title: str, icon: str) -> ft.Row:
     return ft.Row(
         [
@@ -209,7 +210,7 @@ class SettingsComponent(ft.Container):
                 ft.Divider(height=1, color=ft.Colors.OUTLINE),
 
                 # ── Filters ─────────────────────────────────────────────
-                _section_header("Job Filters", ft.Icons.FILTER_LIST),
+                _section_header("Job Filters (LinkedIn)", ft.Icons.FILTER_LIST),
                 ft.ResponsiveRow(
                     [
                         ft.Column([self.timeframe_dropdown], col={"xs": 12, "md": 4}),

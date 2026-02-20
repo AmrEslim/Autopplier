@@ -4,6 +4,7 @@ import json
 import re
 from datetime import datetime
 from app.scraper.linkedin import LinkedInScraper
+from app.scraper.eu_startups import EUStartupsScraper
 from config.settings import settings
 
 # Setup logging
@@ -36,6 +37,7 @@ async def run_scraper(
     log_callback=None,
     stop_event: asyncio.Event = None,
     progress_callback=None,
+    job_boards: list = None,
 ):
     """Entry point for the GUI.
 
@@ -44,6 +46,7 @@ async def run_scraper(
         stop_event:        asyncio.Event; set it to request a graceful stop.
         progress_callback: Optional callable(current, total, stage: str) for
                            progress updates. Stages: 'search', 'filter', 'fetch'.
+        job_boards:        List of board codes to scrape, e.g. ['linkedin', 'eu_startups'].
     """
     if stop_event is None:
         stop_event = asyncio.Event()  # never-set fallback
@@ -68,99 +71,133 @@ async def run_scraper(
     reload(cfg_mod)
     from config.settings import settings as fresh_settings
 
-    scraper = LinkedInScraper(headless=fresh_settings.HEADLESS_MODE)
-
+    # Load search params
     try:
-        await scraper.start()
+        with open("data/inputs/search_params.json", "r") as f:
+            search_params = json.load(f)
+        keywords          = search_params.get("keywords", "Software Engineer")
+        location          = search_params.get("location", "United States")
+        limit             = search_params.get("limit", 25)
+        timeframe         = search_params.get("timeframe", "r7200")
+        job_type          = search_params.get("job_type", "")
+        remote            = search_params.get("remote", "")
+        experience_levels = search_params.get("experience_levels", [])
+        exclude_easy_apply= search_params.get("exclude_easy_apply", False)
+    except FileNotFoundError:
+        log("search_params.json not found, using defaults.")
+        keywords, location, limit = "Software Engineer", "United States", 25
+        timeframe, job_type, remote, experience_levels = "r7200", "", "", []
+        exclude_easy_apply = False
 
-        # Try to login if credentials exist
-        email = getattr(fresh_settings, "LINKEDIN_EMAIL", None)
-        password = getattr(fresh_settings, "LINKEDIN_PASSWORD", None)
-        if email and password:
-            log("Logging in to LinkedIn...")
-            try:
-                await scraper.login({"email": email, "password": password})
-            except Exception as e:
-                log(f"Login failed, proceeding as guest: {e}")
-        else:
-            log("No login credentials found in settings, proceeding as guest.")
+    # Determine which boards to scrape
+    if job_boards is None:
+        job_boards = search_params.get("job_boards", ["linkedin"]) if 'search_params' in dir() else ["linkedin"]
 
-        # Load search params
-        try:
-            with open("data/inputs/search_params.json", "r") as f:
-                search_params = json.load(f)
-            keywords          = search_params.get("keywords", "Software Engineer")
-            location          = search_params.get("location", "United States")
-            limit             = search_params.get("limit", 25)
-            timeframe         = search_params.get("timeframe", "r7200")
-            job_type          = search_params.get("job_type", "")
-            remote            = search_params.get("remote", "")
-            experience_levels = search_params.get("experience_levels", [])
-            exclude_easy_apply= search_params.get("exclude_easy_apply", False)
-        except FileNotFoundError:
-            log("search_params.json not found, using defaults.")
-            keywords, location, limit = "Software Engineer", "United States", 25
-            timeframe, job_type, remote, experience_levels = "r7200", "", "", []
-            exclude_easy_apply = False
+    all_collected = []
 
-        # Parse timeframe seconds for recency filtering
-        tf_seconds = int(timeframe.lstrip("r")) if timeframe.startswith("r") else 7200
-
-        log(f"Searching for '{keywords}' in '{location}' (limit={limit}, timeframe={timeframe})...")
-        jobs = await scraper.search_jobs(
-            keywords, location,
-            limit=limit,
-            timeframe=timeframe,
-            job_type=job_type,
-            remote=remote,
-            experience_levels=experience_levels,
-            exclude_easy_apply=exclude_easy_apply,
-        )
-
-        log(f"Found {len(jobs)} jobs. Filtering by selected time frame...")
-        progress(len(jobs), len(jobs), "search")
+    for board_idx, job_board in enumerate(job_boards):
         if stopped():
             log("Stop requested — aborting.")
-            return
+            break
 
-        recent_jobs = [j for j in jobs if is_within_timeframe(j.get("posted_time", ""), tf_seconds)]
-        log(f"{len(recent_jobs)} jobs match the time frame filter.")
-        progress(len(recent_jobs), len(jobs), "filter")
+        board_label = job_board.replace("_", " ").title()
+        if len(job_boards) > 1:
+            log(f"\n{'='*40}")
+            log(f"Board {board_idx + 1}/{len(job_boards)}: {board_label}")
+            log(f"{'='*40}")
 
-        if recent_jobs:
-            for i, job in enumerate(recent_jobs):
-                if stopped():
-                    log(f"Stop requested — halting after {i} descriptions fetched.")
-                    break
-                log(f"Fetching description {i+1}/{len(recent_jobs)}: {job['title']}")
-                progress(i + 1, len(recent_jobs), "fetch")
-                description = await scraper.get_job_description(job['link'], exclude_easy_apply=exclude_easy_apply)
-                if exclude_easy_apply and description == "EASY_APPLY_SKIPPED":
-                    log(f"Skipping {job['title']} (discovered to be Easy Apply)")
-                    continue
-                job['description'] = description
-                # Interruptible sleep: check every 0.5 s
-                for _ in range(2):
-                    if stopped():
-                        break
-                    await asyncio.sleep(0.5)
-
-            # Save whatever we managed to collect
-            collected = [j for j in recent_jobs if 'description' in j]
-            if collected:
-                output_file = "recent_jobs.json"
-                with open(output_file, "w", encoding="utf-8") as f:
-                    json.dump(collected, f, indent=4, ensure_ascii=False)
-                log(f"Saved {len(collected)} jobs to {output_file}")
+        # Instantiate the right scraper
+        if job_board == "eu_startups":
+            log("Scraping: EU-Startups")
+            scraper = EUStartupsScraper(headless=fresh_settings.HEADLESS_MODE)
         else:
-            log("No recent jobs found matching the filters.")
+            log("Scraping: LinkedIn")
+            scraper = LinkedInScraper(headless=fresh_settings.HEADLESS_MODE)
 
-    except Exception as e:
-        log(f"Error: {e}")
-        logger.error(f"An error occurred: {e}")
-    finally:
-        await scraper.close()
-        log("Scraper closed.")
+        try:
+            await scraper.start()
+
+            # LinkedIn login (only for LinkedIn board)
+            if job_board == "linkedin":
+                email = getattr(fresh_settings, "LINKEDIN_EMAIL", None)
+                password = getattr(fresh_settings, "LINKEDIN_PASSWORD", None)
+                if email and password:
+                    log("Logging in to LinkedIn...")
+                    try:
+                        await scraper.login({"email": email, "password": password})
+                    except Exception as e:
+                        log(f"Login failed, proceeding as guest: {e}")
+                else:
+                    log("No login credentials found in settings, proceeding as guest.")
+
+            log(f"Searching for '{keywords}' in '{location}' (limit={limit})...")
+            jobs = await scraper.search_jobs(
+                keywords, location,
+                limit=limit,
+                timeframe=timeframe,
+                job_type=job_type,
+                remote=remote,
+                experience_levels=experience_levels,
+                exclude_easy_apply=exclude_easy_apply,
+            )
+
+            log(f"Found {len(jobs)} results from {board_label}.")
+            progress(len(jobs), len(jobs), "search")
+            if stopped():
+                log("Stop requested — aborting.")
+                break
+
+            # Recency filter only for LinkedIn
+            if job_board == "linkedin":
+                tf_seconds = int(timeframe.lstrip("r")) if timeframe.startswith("r") else 7200
+                recent_jobs = [j for j in jobs if is_within_timeframe(j.get("posted_time", ""), tf_seconds)]
+                log(f"{len(recent_jobs)} jobs match the time frame filter.")
+            else:
+                recent_jobs = jobs
+                log(f"Using all {len(recent_jobs)} results (no recency filter for {board_label}).")
+            progress(len(recent_jobs), len(jobs), "filter")
+
+            if recent_jobs:
+                for i, job in enumerate(recent_jobs):
+                    if stopped():
+                        log(f"Stop requested — halting after {i} descriptions fetched.")
+                        break
+                    log(f"[{board_label}] Fetching description {i+1}/{len(recent_jobs)}: {job['title']}")
+                    progress(i + 1, len(recent_jobs), "fetch")
+                    ea_flag = exclude_easy_apply if job_board == "linkedin" else False
+                    description = await scraper.get_job_description(job['link'], exclude_easy_apply=ea_flag)
+                    if exclude_easy_apply and description == "EASY_APPLY_SKIPPED":
+                        log(f"Skipping {job['title']} (discovered to be Easy Apply)")
+                        continue
+                    job['description'] = description
+                    # Interruptible sleep: check every 0.5 s
+                    for _ in range(2):
+                        if stopped():
+                            break
+                        await asyncio.sleep(0.5)
+
+                # Gather what we collected for this board
+                collected = [j for j in recent_jobs if 'description' in j]
+                all_collected.extend(collected)
+                log(f"Collected {len(collected)} results from {board_label}.")
+            else:
+                log(f"No results found matching the filters on {board_label}.")
+
+        except Exception as e:
+            log(f"Error on {board_label}: {e}")
+            logger.error(f"An error occurred on {board_label}: {e}")
+        finally:
+            await scraper.close()
+            log(f"{board_label} scraper closed.")
+
+    # Save merged results
+    if all_collected:
+        output_file = "recent_jobs.json"
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(all_collected, f, indent=4, ensure_ascii=False)
+        log(f"Saved {len(all_collected)} total jobs to {output_file}")
+    else:
+        log("No results collected from any board.")
 
 
 async def main():
