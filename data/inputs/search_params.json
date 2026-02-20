@@ -1,9 +1,10 @@
 {
     "keywords": "Software engineer",
     "location": "Berlin",
-    "limit": 10,
+    "limit": 50,
     "timeframe": "r21600",
     "job_type": "",
     "remote": "",
-    "experience_levels": []
+    "experience_levels": [],
+    "exclude_easy_apply": true
 }

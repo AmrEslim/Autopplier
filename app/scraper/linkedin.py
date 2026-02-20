@@ -54,8 +54,11 @@ class LinkedInScraper(BaseScraper):
         job_type          = kwargs.get("job_type", "")
         remote            = kwargs.get("remote", "")
         experience_levels = kwargs.get("experience_levels", [])
+        exclude_easy_apply= kwargs.get("exclude_easy_apply", False)
 
         self.logger.info(f"Searching for '{query}' in '{location}' (Limit: {limit})...")
+        if exclude_easy_apply:
+            self.logger.info("Will exclude jobs with 'Easy Apply'.")
 
         all_jobs = []
         offset = 0
@@ -107,6 +110,12 @@ class LinkedInScraper(BaseScraper):
                         posted_time = await time_elem.inner_text() if time_elem else "Unknown"
                         
                         if link != "Unknown":
+                            if exclude_easy_apply:
+                                card_text = await card.inner_text()
+                                if "easy apply" in card_text.lower() or "apply with linkedin" in card_text.lower():
+                                    self.logger.info(f"Skipping '{title}' because it has Easy Apply.")
+                                    continue
+                                    
                             all_jobs.append({
                                 "title": title.strip(),
                                 "company": company.strip(),
@@ -128,7 +137,7 @@ class LinkedInScraper(BaseScraper):
         
         return all_jobs
 
-    async def get_job_description(self, job_url: str) -> str:
+    async def get_job_description(self, job_url: str, exclude_easy_apply: bool = False) -> str:
         """
         Navigates to the job URL and extracts the full description.
         """
@@ -156,6 +165,15 @@ class LinkedInScraper(BaseScraper):
                 # Wait for description container
                 await page.wait_for_selector(".show-more-less-html__markup, .description__text, #job-details", timeout=5000)
                 
+                if exclude_easy_apply:
+                    # Check for "Easy Apply" or "Apply with LinkedIn" button
+                    page_html = await page.content()
+                    normalized = page_html.lower()
+                    if ("easy apply" in normalized and "jobs-apply-button" in normalized) or "apply-link-onsite" in normalized:
+                        self.logger.info(f"Skipping Easy Apply job: {job_url}")
+                        await page.close()
+                        return "EASY_APPLY_SKIPPED"
+                        
                 description_elem = await page.query_selector(".show-more-less-html__markup")
                 if not description_elem:
                      description_elem = await page.query_selector(".description__text")

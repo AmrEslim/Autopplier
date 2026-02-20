@@ -122,6 +122,12 @@ class SettingsComponent(ft.Container):
             active_color=ft.Colors.BLUE_400,
         )
 
+        self.exclude_easy_apply_checkbox = ft.Checkbox(
+            label="Exclude Easy Apply jobs", 
+            value=False,
+            active_color=ft.Colors.BLUE_400
+        )
+
         # ── Credentials ────────────────────────────────────────────────────
         self.email_input = ft.TextField(
             label="LinkedIn Email",
@@ -222,6 +228,9 @@ class SettingsComponent(ft.Container):
                     padding=ft.padding.symmetric(horizontal=12, vertical=8),
                 ),
 
+                ft.Container(height=8),
+                self.exclude_easy_apply_checkbox,
+
                 ft.Divider(height=1, color=ft.Colors.OUTLINE),
 
                 # ── Browser ─────────────────────────────────────────────
@@ -283,6 +292,8 @@ class SettingsComponent(ft.Container):
                 label = inv_exp.get(code)
                 if label and label in self.exp_checkboxes:
                     self.exp_checkboxes[label].value = True
+                    
+            self.exclude_easy_apply_checkbox.value = data.get("exclude_easy_apply", False)
 
         except FileNotFoundError:
             pass
@@ -312,6 +323,7 @@ class SettingsComponent(ft.Container):
             "job_type":          JOB_TYPE_OPTIONS.get(self.job_type_dropdown.value, ""),
             "remote":            REMOTE_OPTIONS.get(self.remote_dropdown.value, ""),
             "experience_levels": selected_exp,
+            "exclude_easy_apply": self.exclude_easy_apply_checkbox.value,
         }
 
         os.makedirs("data/inputs", exist_ok=True)

@@ -73,6 +73,18 @@ async def run_scraper(
     try:
         await scraper.start()
 
+        # Try to login if credentials exist
+        email = getattr(fresh_settings, "LINKEDIN_EMAIL", None)
+        password = getattr(fresh_settings, "LINKEDIN_PASSWORD", None)
+        if email and password:
+            log("Logging in to LinkedIn...")
+            try:
+                await scraper.login({"email": email, "password": password})
+            except Exception as e:
+                log(f"Login failed, proceeding as guest: {e}")
+        else:
+            log("No login credentials found in settings, proceeding as guest.")
+
         # Load search params
         try:
             with open("data/inputs/search_params.json", "r") as f:
@@ -84,10 +96,12 @@ async def run_scraper(
             job_type          = search_params.get("job_type", "")
             remote            = search_params.get("remote", "")
             experience_levels = search_params.get("experience_levels", [])
+            exclude_easy_apply= search_params.get("exclude_easy_apply", False)
         except FileNotFoundError:
             log("search_params.json not found, using defaults.")
             keywords, location, limit = "Software Engineer", "United States", 25
             timeframe, job_type, remote, experience_levels = "r7200", "", "", []
+            exclude_easy_apply = False
 
         # Parse timeframe seconds for recency filtering
         tf_seconds = int(timeframe.lstrip("r")) if timeframe.startswith("r") else 7200
@@ -100,6 +114,7 @@ async def run_scraper(
             job_type=job_type,
             remote=remote,
             experience_levels=experience_levels,
+            exclude_easy_apply=exclude_easy_apply,
         )
 
         log(f"Found {len(jobs)} jobs. Filtering by selected time frame...")
@@ -119,7 +134,10 @@ async def run_scraper(
                     break
                 log(f"Fetching description {i+1}/{len(recent_jobs)}: {job['title']}")
                 progress(i + 1, len(recent_jobs), "fetch")
-                description = await scraper.get_job_description(job['link'])
+                description = await scraper.get_job_description(job['link'], exclude_easy_apply=exclude_easy_apply)
+                if exclude_easy_apply and description == "EASY_APPLY_SKIPPED":
+                    log(f"Skipping {job['title']} (discovered to be Easy Apply)")
+                    continue
                 job['description'] = description
                 # Interruptible sleep: check every 0.5 s
                 for _ in range(2):
@@ -161,14 +179,16 @@ async def main():
             keywords = search_params.get("keywords", "Software Engineer")
             location = search_params.get("location", "United States")
             limit = search_params.get("limit", 25)
+            exclude_easy_apply = search_params.get("exclude_easy_apply", False)
         except FileNotFoundError:
             logger.warning("search_params.json not found, using defaults.")
             keywords = "Software Engineer"
             location = "United States"
             limit = 25
+            exclude_easy_apply = False
 
         # Test Search with higher limit
-        jobs = await scraper.search_jobs(keywords, location, limit=limit)
+        jobs = await scraper.search_jobs(keywords, location, limit=limit, exclude_easy_apply=exclude_easy_apply)
         
         logger.info(f"Only processing jobs posted in the last 2 hours from the {len(jobs)} found.")
         
@@ -183,7 +203,10 @@ async def main():
             # Given we only have ~5-10, we can do all.
             for i, job in enumerate(recent_jobs):
                 logger.info(f"Fetching description for job {i+1}/{len(recent_jobs)}: {job['title']}")
-                description = await scraper.get_job_description(job['link'])
+                description = await scraper.get_job_description(job['link'], exclude_easy_apply=exclude_easy_apply)
+                if exclude_easy_apply and description == "EASY_APPLY_SKIPPED":
+                    logger.info(f"Skipping {job['title']} (discovered to be Easy Apply)")
+                    continue
                 job['description'] = description
                 # Sleep briefly to be nice
                 await asyncio.sleep(1)
