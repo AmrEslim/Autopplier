@@ -1,0 +1,9 @@
+playwright
+langchain
+crewai
+openai
+google-genai
+python-dotenv
+beautifulsoup4
+pytest
+flet
