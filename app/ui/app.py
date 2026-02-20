@@ -4,6 +4,7 @@ from app.ui.components.logs import LogComponent
 from app.ui.components.dashboard import DashboardComponent
 from app.ui.components.settings import SettingsComponent
 from app.ui.components.results import ResultsComponent
+from app.ui.components.cover_letter import CoverLetterComponent
 
 # Configure logging to also print to console for debugging
 logging.basicConfig(level=logging.INFO)
@@ -18,12 +19,12 @@ def main(page: ft.Page):
 
     # Components
     log_component = LogComponent()
-    dashboard = DashboardComponent(log_component)
-    settings_tab = SettingsComponent()
-
     results_tab = ResultsComponent()
+    dashboard = DashboardComponent(log_component, results_tab)
+    settings_tab = SettingsComponent()
+    cover_letter_tab = CoverLetterComponent()
 
-    views = [dashboard, log_component, results_tab, settings_tab]
+    views = [dashboard, log_component, results_tab, cover_letter_tab, settings_tab]
 
     # Content area — swapped on nav change
     content_area = ft.Container(
@@ -53,6 +54,11 @@ def main(page: ft.Page):
                 label="Results",
                 icon=ft.icons.Icons.WORK_OUTLINE,
                 selected_icon=ft.icons.Icons.WORK,
+            ),
+            ft.NavigationBarDestination(
+                label="Cover Letter",
+                icon=ft.icons.Icons.DESCRIPTION_OUTLINED,
+                selected_icon=ft.icons.Icons.DESCRIPTION,
             ),
             ft.NavigationBarDestination(
                 label="Settings",

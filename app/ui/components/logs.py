@@ -1,11 +1,12 @@
 import flet as ft
+from datetime import datetime
 
 
 class LogComponent(ft.Column):
     def __init__(self):
         super().__init__()
         self.expand = True
-        self._pending_logs = []  # messages buffered while the tab is hidden
+        self._mounted = False
 
         self.log_view = ft.ListView(
             expand=True,
@@ -13,8 +14,18 @@ class LogComponent(ft.Column):
             auto_scroll=True,
         )
 
+        clear_btn = ft.IconButton(
+            icon=ft.Icons.DELETE_OUTLINE,
+            tooltip="Clear logs",
+            on_click=lambda e: self.clear(),
+        )
+
         self.controls = [
-            ft.Text("Application Logs", size=20, weight=ft.FontWeight.BOLD),
+            ft.Row([
+                ft.Text("Application Logs", size=20, weight=ft.FontWeight.BOLD),
+                ft.Container(expand=True),
+                clear_btn,
+            ]),
             ft.Container(
                 content=self.log_view,
                 border=ft.border.all(1, ft.Colors.OUTLINE),
@@ -25,29 +36,35 @@ class LogComponent(ft.Column):
         ]
 
     def did_mount(self):
-        """Flush buffered logs when the Logs tab becomes the active view."""
-        if self._pending_logs:
-            for msg in self._pending_logs:
-                self.log_view.controls.append(ft.Text(msg, font_family="Consolas"))
-            self._pending_logs.clear()
-            try:
-                self.update()
-            except Exception:
-                pass
-
-    def add_log(self, message: str):
-        """Append a log message. Safe to call at any time."""
-        self.log_view.controls.append(ft.Text(message, font_family="Consolas"))
-        # Try to push a live update; if the control isn't mounted yet, buffer it
-        try:
-            self.log_view.update()
-        except Exception:
-            self._pending_logs.append(message)
-
-    def clear(self):
-        self._pending_logs.clear()
-        self.log_view.controls.clear()
+        self._mounted = True
         try:
             self.update()
         except Exception:
             pass
+
+    def will_unmount(self):
+        self._mounted = False
+
+    def add_log(self, message: str):
+        """Append a timestamped log message. Safe to call from the Flet event loop."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.log_view.controls.append(
+            ft.Text(
+                f"[{timestamp}]  {message}",
+                font_family="Consolas",
+                size=12,
+            )
+        )
+        if self._mounted:
+            try:
+                self.log_view.update()
+            except Exception:
+                pass
+
+    def clear(self):
+        self.log_view.controls.clear()
+        if self._mounted:
+            try:
+                self.update()
+            except Exception:
+                pass

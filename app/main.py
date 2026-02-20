@@ -31,17 +31,22 @@ def is_within_timeframe(posted_text: str, max_seconds: int = 7200) -> bool:
 
     return False
 
-import threading
 
-async def run_scraper(log_callback=None, stop_event: threading.Event = None):
+async def run_scraper(
+    log_callback=None,
+    stop_event: asyncio.Event = None,
+    progress_callback=None,
+):
     """Entry point for the GUI.
-    
+
     Args:
-        log_callback:  Optional callable(msg: str) for real-time log output.
-        stop_event:    threading.Event; set it to request a graceful stop.
+        log_callback:      Optional callable(msg: str) for real-time log output.
+        stop_event:        asyncio.Event; set it to request a graceful stop.
+        progress_callback: Optional callable(current, total, stage: str) for
+                           progress updates. Stages: 'search', 'filter', 'fetch'.
     """
     if stop_event is None:
-        stop_event = threading.Event()  # never-set fallback
+        stop_event = asyncio.Event()  # never-set fallback
 
     def stopped() -> bool:
         return stop_event.is_set()
@@ -50,6 +55,10 @@ async def run_scraper(log_callback=None, stop_event: threading.Event = None):
         logger.info(msg)
         if log_callback:
             log_callback(msg)
+
+    def progress(current: int, total: int, stage: str):
+        if progress_callback:
+            progress_callback(current, total, stage)
 
     log("Starting AutoApply AI...")
 
@@ -94,12 +103,14 @@ async def run_scraper(log_callback=None, stop_event: threading.Event = None):
         )
 
         log(f"Found {len(jobs)} jobs. Filtering by selected time frame...")
+        progress(len(jobs), len(jobs), "search")
         if stopped():
             log("Stop requested — aborting.")
             return
 
         recent_jobs = [j for j in jobs if is_within_timeframe(j.get("posted_time", ""), tf_seconds)]
         log(f"{len(recent_jobs)} jobs match the time frame filter.")
+        progress(len(recent_jobs), len(jobs), "filter")
 
         if recent_jobs:
             for i, job in enumerate(recent_jobs):
@@ -107,6 +118,7 @@ async def run_scraper(log_callback=None, stop_event: threading.Event = None):
                     log(f"Stop requested — halting after {i} descriptions fetched.")
                     break
                 log(f"Fetching description {i+1}/{len(recent_jobs)}: {job['title']}")
+                progress(i + 1, len(recent_jobs), "fetch")
                 description = await scraper.get_job_description(job['link'])
                 job['description'] = description
                 # Interruptible sleep: check every 0.5 s
