@@ -152,6 +152,14 @@ class SettingsComponent(ft.Container):
             border_radius=8,
             filled=True,
         )
+        self.gemini_key_input = ft.TextField(
+            label="Gemini API Key",
+            password=True,
+            can_reveal_password=True,
+            prefix_icon=ft.Icons.KEY_OUTLINED,
+            border_radius=8,
+            filled=True,
+        )
 
         # ── Save button & snackbar ─────────────────────────────────────────
         self.save_btn = ft.ElevatedButton(
@@ -250,6 +258,7 @@ class SettingsComponent(ft.Container):
                     spacing=12,
                 ),
                 self.openai_key_input,
+                self.gemini_key_input,
 
                 ft.Divider(height=1, color=ft.Colors.OUTLINE),
 
@@ -304,6 +313,7 @@ class SettingsComponent(ft.Container):
         self.email_input.value      = env.get("LINKEDIN_EMAIL", "")
         self.password_input.value   = env.get("LINKEDIN_PASSWORD", "")
         self.openai_key_input.value = env.get("OPENAI_API_KEY", "")
+        self.gemini_key_input.value = env.get("GEMINI_API_KEY", "")
         self.headless_switch.value  = env.get("HEADLESS_MODE", "False").lower() == "true"
 
     # ──────────────────────────────────────────────────────────────────────
@@ -335,6 +345,7 @@ class SettingsComponent(ft.Container):
         set_key(ENV_PATH, "LINKEDIN_EMAIL",    self.email_input.value.strip())
         set_key(ENV_PATH, "LINKEDIN_PASSWORD",  self.password_input.value)
         set_key(ENV_PATH, "OPENAI_API_KEY",     self.openai_key_input.value.strip())
+        set_key(ENV_PATH, "GEMINI_API_KEY",     self.gemini_key_input.value.strip())
         set_key(ENV_PATH, "HEADLESS_MODE",      str(self.headless_switch.value))
 
         e.page.show_dialog(

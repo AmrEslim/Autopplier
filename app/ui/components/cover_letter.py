@@ -39,6 +39,19 @@ class CoverLetterComponent(ft.Column):
         self.spacing = 0
         self._mounted = False
 
+        # ── AI provider selector ──────────────────────────────────────────
+        self.ai_provider_dropdown = ft.Dropdown(
+            label="AI Provider",
+            options=[
+                ft.dropdown.Option("OpenAI"),
+                ft.dropdown.Option("Gemini"),
+            ],
+            value="OpenAI",
+            border_radius=8,
+            filled=True,
+            width=180,
+        )
+
         # ── Resume text area ──────────────────────────────────────────────
         self.resume_field = ft.TextField(
             label="Paste your résumé here",
@@ -205,7 +218,11 @@ class CoverLetterComponent(ft.Column):
                 _section_label("💼 Job Description (optional)"),
                 self.job_desc_field,
                 ft.Container(height=12),
-                ft.Row([self.generate_btn], alignment=ft.MainAxisAlignment.END),
+                ft.Row(
+                    [self.ai_provider_dropdown, ft.Container(expand=True), self.generate_btn],
+                    alignment=ft.MainAxisAlignment.END,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
             ],
             spacing=6,
             scroll=ft.ScrollMode.AUTO,
@@ -316,9 +333,11 @@ class CoverLetterComponent(ft.Column):
 
     # ── AI helpers ────────────────────────────────────────────────────────
 
-    def _get_api_key(self) -> str:
+    def _get_api_key(self, provider: str = "openai") -> str:
         env = dotenv_values(".env")
-        return env.get("OPENAI_API_KEY", ".....")
+        if provider == "gemini":
+            return env.get("GEMINI_API_KEY", "")
+        return env.get("OPENAI_API_KEY", "")
 
     def _build_context(self) -> str:
         """Combine resume + instructions into a grounding context string."""
@@ -334,9 +353,16 @@ class CoverLetterComponent(ft.Column):
             parts.append(f"=== JOB DESCRIPTION ===\n{job_desc.strip()}")
         return "\n\n".join(parts)
 
+    async def _call_ai(self, system_prompt: str, user_prompt: str) -> str:
+        """Dispatch to the selected AI provider."""
+        provider = (self.ai_provider_dropdown.value or "OpenAI").lower()
+        if provider == "gemini":
+            return await self._call_gemini(system_prompt, user_prompt)
+        return await self._call_openai(system_prompt, user_prompt)
+
     async def _call_openai(self, system_prompt: str, user_prompt: str) -> str:
         """Async wrapper around the OpenAI chat completion API."""
-        api_key = self._get_api_key()
+        api_key = self._get_api_key("openai")
         if not api_key or api_key.startswith("sk-...") or not api_key.startswith("sk-"):
             return (
                 "⚠️  No valid OpenAI API key found.\n"
@@ -357,6 +383,27 @@ class CoverLetterComponent(ft.Column):
             return response.choices[0].message.content.strip()
         except Exception as exc:
             return f"❌ Error calling OpenAI: {exc}"
+
+    async def _call_gemini(self, system_prompt: str, user_prompt: str) -> str:
+        """Async wrapper around the Google Gemini API."""
+        api_key = self._get_api_key("gemini")
+        if not api_key:
+            return (
+                "⚠️  No Gemini API key found.\n"
+                "Please add your key in the Settings tab under 'Gemini API Key'."
+            )
+        try:
+            from google import genai
+            client = genai.Client(api_key=api_key)
+            combined_prompt = f"{system_prompt}\n\n{user_prompt}"
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model="gemini-2.0-flash",
+                contents=combined_prompt,
+            )
+            return response.text.strip()
+        except Exception as exc:
+            return f"❌ Error calling Gemini: {exc}"
 
     # ── Generate cover letter ─────────────────────────────────────────────
 
@@ -408,7 +455,7 @@ class CoverLetterComponent(ft.Column):
 
         user_prompt = "\n".join(user_prompt_parts)
 
-        result = await self._call_openai(system_prompt, user_prompt)
+        result = await self._call_ai(system_prompt, user_prompt)
 
         # Split cover letter from FAQ answers if present
         cover_letter_text = result
@@ -476,7 +523,7 @@ class CoverLetterComponent(ft.Column):
                 f"{context}\n\n"
                 f"=== QUESTION ===\n{question}"
             )
-            answer = await self._call_openai(system_prompt, user_prompt)
+            answer = await self._call_ai(system_prompt, user_prompt)
 
         self.qa_spinner.visible = False
         self._add_qa_bubble(answer, is_user=False)

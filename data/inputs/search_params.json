@@ -6,9 +6,5 @@
     "job_type": "",
     "remote": "",
     "experience_levels": [],
-    "exclude_easy_apply": true,
-    "job_boards": [
-        "linkedin",
-        "eu_startups"
-    ]
+    "exclude_easy_apply": true
 }
